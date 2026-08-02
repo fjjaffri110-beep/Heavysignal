@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crypto Scanner</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="container">
+  <header class="header">
+    <h1>Crypto Scanner</h1>
+    <p class="subtitle">Binance Futures &middot; EMA140 / Bollinger Band(20, 2.0) condition scanner</p>
+  </header>
+
+  <div class="controls">
+    <button id="refreshBtn" class="refresh-btn">Refresh Scanner</button>
+    <div class="status-line">
+      <span id="statusBadge" class="status-badge idle">Idle</span>
+      <span id="lastScan" class="last-scan">Last scan: never</span>
+    </div>
+  </div>
+
+  <div id="progressWrap" class="progress-wrap hidden">
+    <div class="progress-bar">
+      <div id="progressFill" class="progress-fill"></div>
+    </div>
+    <span id="progressText" class="progress-text">0 / 0</span>
+  </div>
+
+  <div id="errorBox" class="error-box hidden"></div>
+
+  <div class="sections">
+    <section class="panel">
+      <h2>Daily</h2>
+      <div id="dailyList" class="coin-list">
+        <p class="empty-msg">Loading...</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>4 Hour</h2>
+      <div id="h4List" class="coin-list">
+        <p class="empty-msg">Loading...</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const refreshBtn = document.getElementById('refreshBtn');
+const statusBadge = document.getElementById('statusBadge');
+const lastScanEl = document.getElementById('lastScan');
+const progressWrap = document.getElementById('progressWrap');
+const progressFill = document.getElementById('progressFill');
+const progressText = document.getElementById('progressText');
+const errorBox = document.getElementById('errorBox');
+const dailyList = document.getElementById('dailyList');
+const h4List = document.getElementById('h4List');
+
+let pollTimer = null;
+
+function renderCoinList(container, coins) {
+  container.innerHTML = '';
+  if (!coins || coins.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty-msg';
+    p.textContent = 'No Matching Coins Found';
+    container.appendChild(p);
+    return;
+  }
+  coins.forEach(function (symbol) {
+    const chip = document.createElement('div');
+    chip.className = 'coin-chip';
+    chip.textContent = symbol;
+    container.appendChild(chip);
+  });
+}
+
+function formatTime(isoString) {
+  if (!isoString) return 'never';
+  const d = new Date(isoString);
+  return d.toLocaleString();
+}
+
+function updateUI(data) {
+  const scanning = data.status === 'scanning';
+
+  statusBadge.textContent = scanning ? 'Scanning...' : 'Idle';
+  statusBadge.className = 'status-badge ' + (scanning ? 'scanning' : 'idle');
+  refreshBtn.disabled = scanning;
+  refreshBtn.textContent = scanning ? 'Scanning...' : 'Refresh Scanner';
+
+  lastScanEl.textContent = 'Last scan: ' + formatTime(data.last_scan_time);
+
+  if (scanning) {
+    progressWrap.classList.remove('hidden');
+    const total = data.progress && data.progress.total ? data.progress.total : 0;
+    const completed = data.progress && data.progress.completed ? data.progress.completed : 0;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    progressFill.style.width = pct + '%';
+    progressText.textContent = completed + ' / ' + total;
+  } else {
+    progressWrap.classList.add('hidden');
+  }
+
+  if (data.error) {
+    errorBox.classList.remove('hidden');
+    errorBox.textContent = 'Scan error: ' + data.error;
+  } else {
+    errorBox.classList.add('hidden');
+    errorBox.textContent = '';
+  }
+
+  renderCoinList(dailyList, data.daily);
+  renderCoinList(h4List, data.h4);
+}
+
+function fetchResults() {
+  fetch('/api/results')
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      updateUI(data);
+    })
+    .catch(function () {
+      // Silently ignore transient network errors during polling.
+    });
+}
+
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(fetchResults, 4000);
+}
+
+refreshBtn.addEventListener('click', function () {
+  refreshBtn.disabled = true;
+  refreshBtn.textContent = 'Scanning...';
+  fetch('/api/refresh', { method: 'POST' })
+    .then(function (res) { return res.json(); })
+    .then(function () {
+      fetchResults();
+    });
+});
+
+fetchResults();
+startPolling();
+</script>
+
+</body>
+</html>
